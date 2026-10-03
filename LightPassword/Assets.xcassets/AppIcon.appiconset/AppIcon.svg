@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="160" y1="96" x2="864" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5A8CFA"/>
+      <stop offset="1" stop-color="#2456C9"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="512" y1="218" x2="512" y2="820" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E8F0FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#background)"/>
+  <circle cx="512" cy="512" r="364" fill="#FFFFFF" fill-opacity="0.10"/>
+  <path d="M512 184C620 247 710 270 788 288V489C788 665 677 785 512 846C347 785 236 665 236 489V288C314 270 404 247 512 184Z" fill="url(#shield)"/>
+  <path d="M512 324C413 324 350 399 350 493V548H326C309 548 296 561 296 578V706C296 723 309 736 326 736H698C715 736 728 723 728 706V578C728 561 715 548 698 548H674V493C674 399 611 324 512 324ZM420 493C420 439 455 398 512 398C569 398 604 439 604 493V548H420V493Z" fill="#3568DD"/>
+  <circle cx="512" cy="629" r="39" fill="#FFFFFF"/>
+  <rect x="496" y="655" width="32" height="45" rx="16" fill="#FFFFFF"/>
+</svg>
