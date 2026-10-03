@@ -1,5 +1,15 @@
 import SwiftUI
 
+struct AutomaticUnlockGate {
+    private(set) var hasAttempted = false
+
+    mutating func shouldAttempt(isSceneActive: Bool) -> Bool {
+        guard isSceneActive, !hasAttempted else { return false }
+        hasAttempted = true
+        return true
+    }
+}
+
 struct UnlockView: View {
     private enum PresentationState: Equatable {
         case biometricAuthenticating
@@ -7,9 +17,10 @@ struct UnlockView: View {
     }
 
     @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
     @State private var password = ""
     @State private var presentationState: PresentationState = .biometricAuthenticating
-    @State private var hasStartedAutomaticUnlock = false
+    @State private var automaticUnlockGate = AutomaticUnlockGate()
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -64,15 +75,22 @@ struct UnlockView: View {
             }
             .padding(24)
             .onAppear {
-                guard !hasStartedAutomaticUnlock else { return }
-                hasStartedAutomaticUnlock = true
-                if model.preferences.biometricEnabled && model.biometricsAvailable {
-                    startBiometricUnlock()
-                } else {
-                    presentationState = .passwordFallback
-                    isFocused = true
-                }
+                startAutomaticUnlockIfNeeded()
             }
+            .onChange(of: scenePhase) { _, newPhase in
+                guard newPhase == .active else { return }
+                startAutomaticUnlockIfNeeded()
+            }
+        }
+    }
+
+    private func startAutomaticUnlockIfNeeded() {
+        guard automaticUnlockGate.shouldAttempt(isSceneActive: scenePhase == .active) else { return }
+        if model.preferences.biometricEnabled && model.biometricsAvailable {
+            startBiometricUnlock()
+        } else {
+            presentationState = .passwordFallback
+            isFocused = true
         }
     }
 

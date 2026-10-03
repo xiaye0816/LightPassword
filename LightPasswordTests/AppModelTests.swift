@@ -5,6 +5,23 @@ import Testing
 
 @MainActor
 struct AppModelTests {
+    @Test func automaticUnlockWaitsForForegroundAndOnlyAttemptsOnce() {
+        var gate = AutomaticUnlockGate()
+
+        let backgroundAttempt = gate.shouldAttempt(isSceneActive: false)
+        #expect(!backgroundAttempt)
+        #expect(!gate.hasAttempted)
+        let foregroundAttempt = gate.shouldAttempt(isSceneActive: true)
+        #expect(foregroundAttempt)
+        #expect(gate.hasAttempted)
+
+        // Face ID temporarily makes the scene inactive, then active again.
+        let faceIDInactiveAttempt = gate.shouldAttempt(isSceneActive: false)
+        let faceIDActiveAttempt = gate.shouldAttempt(isSceneActive: true)
+        #expect(!faceIDInactiveAttempt)
+        #expect(!faceIDActiveAttempt)
+    }
+
     @Test func crudClipboardTrashAndBackupRestore() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
