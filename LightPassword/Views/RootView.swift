@@ -1,14 +1,7 @@
 import SwiftUI
 
-enum PrivacyShieldPolicy {
-    static func isVisible(for scenePhase: ScenePhase) -> Bool {
-        scenePhase != .active
-    }
-}
-
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -41,7 +34,7 @@ struct RootView: View {
                 .allowsHitTesting(false)
             }
 
-            if PrivacyShieldPolicy.isVisible(for: scenePhase) {
+            if model.privacyShieldVisible {
                 PrivacyShieldView()
                     .transition(.opacity)
                     .zIndex(10)

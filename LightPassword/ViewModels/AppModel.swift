@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var entries: [PasswordEntry] = []
     @Published var alertMessage: String?
     @Published var toastMessage: String?
+    @Published private(set) var privacyShieldVisible = false
     @Published private(set) var isBiometricUnlockInProgress = false
 
     let preferences: AppPreferences
@@ -29,6 +30,9 @@ final class AppModel: ObservableObject {
     private var backgroundedAt: Date?
     private var autoLockTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
+    private var biometricTransitionTask: Task<Void, Never>?
+    private var latestScenePhase: ScenePhase = .active
+    private var suppressInactivePrivacyShield = false
 
     init(
         store: VaultStore = FileVaultStore(),
@@ -100,8 +104,14 @@ final class AppModel: ObservableObject {
     @discardableResult
     func unlockWithBiometrics() async -> Bool {
         guard !isBiometricUnlockInProgress else { return false }
+        biometricTransitionTask?.cancel()
         isBiometricUnlockInProgress = true
-        defer { isBiometricUnlockInProgress = false }
+        suppressInactivePrivacyShield = true
+        privacyShieldVisible = false
+        defer {
+            isBiometricUnlockInProgress = false
+            finishBiometricPrivacyTransition()
+        }
 
         var key: [UInt8]
         do {
@@ -300,6 +310,7 @@ final class AppModel: ObservableObject {
     }
 
     func handleScenePhase(_ phase: ScenePhase) {
+        latestScenePhase = phase
         switch phase {
         case .active:
             autoLockTask?.cancel()
@@ -308,17 +319,32 @@ final class AppModel: ObservableObject {
                 lock()
             }
             backgroundedAt = nil
+            if !isBiometricUnlockInProgress {
+                biometricTransitionTask?.cancel()
+                suppressInactivePrivacyShield = false
+            }
+            privacyShieldVisible = false
         case .inactive:
-            break
+            if !suppressInactivePrivacyShield, state == .unlocked {
+                privacyShieldVisible = true
+            }
         case .background:
+            biometricTransitionTask?.cancel()
+            suppressInactivePrivacyShield = false
+            privacyShieldVisible = true
             backgroundedAt = .now
             scheduleAutoLock()
         @unknown default:
-            break
+            biometricTransitionTask?.cancel()
+            suppressInactivePrivacyShield = false
+            privacyShieldVisible = true
         }
     }
 
     func protectedDataWillBecomeUnavailable() {
+        biometricTransitionTask?.cancel()
+        suppressInactivePrivacyShield = false
+        privacyShieldVisible = true
         lock()
     }
 
@@ -337,6 +363,18 @@ final class AppModel: ObservableObject {
         entries = opened.payload.entries
         state = .unlocked
         purgeExpiredTrash()
+    }
+
+    private func finishBiometricPrivacyTransition() {
+        biometricTransitionTask?.cancel()
+        biometricTransitionTask = Task { [weak self] in
+            // SwiftUI can deliver the Face ID scene transition just after
+            // LocalAuthentication returns. Give that lifecycle event one short
+            // window to arrive before ending the suppression.
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self, self.latestScenePhase == .active else { return }
+            self.suppressInactivePrivacyShield = false
+        }
     }
 
     private func mutateEntry(_ id: UUID, mutation: (inout PasswordEntry) -> Void) {

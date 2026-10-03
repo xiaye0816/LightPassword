@@ -22,12 +22,6 @@ struct AppModelTests {
         #expect(!faceIDActiveAttempt)
     }
 
-    @Test func privacyShieldIsVisibleOnlyOutsideActiveScene() {
-        #expect(!PrivacyShieldPolicy.isVisible(for: .active))
-        #expect(PrivacyShieldPolicy.isVisible(for: .inactive))
-        #expect(PrivacyShieldPolicy.isVisible(for: .background))
-    }
-
     @Test func crudClipboardTrashAndBackupRestore() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -140,6 +134,49 @@ struct AppModelTests {
         #expect(model.state == .locked)
         #expect(model.alertMessage == nil)
     }
+
+    @Test func biometricSuccessDoesNotShowShieldDuringSystemTransition() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suiteName = "LightPasswordTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let biometricStore = TestBiometricStore()
+        biometricStore.readDelay = .milliseconds(50)
+        let model = AppModel(
+            store: FileVaultStore(baseDirectory: directory),
+            crypto: SodiumVaultCrypto(),
+            biometricStore: biometricStore,
+            clipboard: TestClipboard(),
+            backupService: EncryptedBackupService(),
+            preferences: AppPreferences(defaults: defaults)
+        )
+
+        model.setup(masterPassword: "correct horse battery staple", enableBiometrics: true)
+        model.lock()
+
+        let unlockTask = Task { await model.unlockWithBiometrics() }
+        await Task.yield()
+        model.handleScenePhase(.inactive)
+        #expect(!model.privacyShieldVisible)
+        model.handleScenePhase(.active)
+        #expect(!model.privacyShieldVisible)
+        #expect(await unlockTask.value)
+        #expect(model.state == .unlocked)
+
+        // The Face ID success animation can keep the scene inactive after
+        // LocalAuthentication has already returned success.
+        model.handleScenePhase(.inactive)
+        #expect(!model.privacyShieldVisible)
+        model.handleScenePhase(.active)
+        #expect(!model.privacyShieldVisible)
+
+        // A later genuine app switch still hides an unlocked vault immediately.
+        model.handleScenePhase(.inactive)
+        #expect(model.privacyShieldVisible)
+        model.handleScenePhase(.background)
+        #expect(model.privacyShieldVisible)
+    }
 }
 
 @MainActor
@@ -157,8 +194,10 @@ private final class TestClipboard: ClipboardService {
 private final class TestBiometricStore: BiometricKeyStore {
     private var key: [UInt8]?
     var shouldFail = false
+    var readDelay: Duration?
     func save(vaultKey: [UInt8]) throws { key = vaultKey }
     func read(reason: String) async throws -> [UInt8] {
+        if let readDelay { try await Task.sleep(for: readDelay) }
         if shouldFail { throw VaultError.biometricFailed }
         guard let key else { throw VaultError.biometricFailed }
         return key
