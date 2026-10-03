@@ -16,7 +16,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var entries: [PasswordEntry] = []
     @Published var alertMessage: String?
     @Published var toastMessage: String?
-    @Published private(set) var privacyShieldVisible = false
     @Published private(set) var isBiometricUnlockInProgress = false
 
     let preferences: AppPreferences
@@ -309,20 +308,17 @@ final class AppModel: ObservableObject {
                 lock()
             }
             backgroundedAt = nil
-            privacyShieldVisible = false
         case .inactive:
-            privacyShieldVisible = true
+            break
         case .background:
-            privacyShieldVisible = true
             backgroundedAt = .now
             scheduleAutoLock()
         @unknown default:
-            privacyShieldVisible = true
+            break
         }
     }
 
     func protectedDataWillBecomeUnavailable() {
-        privacyShieldVisible = true
         lock()
     }
 
@@ -339,7 +335,6 @@ final class AppModel: ObservableObject {
     private func finishUnlock(_ opened: OpenedVault) {
         openedVault = opened
         entries = opened.payload.entries
-        privacyShieldVisible = false
         state = .unlocked
         purgeExpiredTrash()
     }

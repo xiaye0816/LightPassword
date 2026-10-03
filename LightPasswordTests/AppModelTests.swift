@@ -22,6 +22,12 @@ struct AppModelTests {
         #expect(!faceIDActiveAttempt)
     }
 
+    @Test func privacyShieldIsVisibleOnlyOutsideActiveScene() {
+        #expect(!PrivacyShieldPolicy.isVisible(for: .active))
+        #expect(PrivacyShieldPolicy.isVisible(for: .inactive))
+        #expect(PrivacyShieldPolicy.isVisible(for: .background))
+    }
+
     @Test func crudClipboardTrashAndBackupRestore() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -79,7 +85,7 @@ struct AppModelTests {
         #expect(model.entries.first?.password == "secret-one")
     }
 
-    @Test func backgroundShieldAndImmediateAutoLock() throws {
+    @Test func backgroundImmediateAutoLock() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let suiteName = "LightPasswordTests.\(UUID().uuidString)"
@@ -99,15 +105,13 @@ struct AppModelTests {
         model.setup(masterPassword: "correct horse battery staple", enableBiometrics: false)
         #expect(model.state == .unlocked)
         model.handleScenePhase(.inactive)
-        #expect(model.privacyShieldVisible)
         model.handleScenePhase(.background)
         #expect(model.state == .locked)
         #expect(model.entries.isEmpty)
         model.handleScenePhase(.active)
-        #expect(!model.privacyShieldVisible)
     }
 
-    @Test func biometricUnlockClearsShieldImmediatelyAndFailureStaysSilent() async throws {
+    @Test func biometricUnlockSucceedsAndFailureStaysSilent() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let suiteName = "LightPasswordTests.\(UUID().uuidString)"
@@ -126,11 +130,9 @@ struct AppModelTests {
         model.setup(masterPassword: "correct horse battery staple", enableBiometrics: true)
         model.handleScenePhase(.inactive)
         model.lock()
-        #expect(model.privacyShieldVisible)
 
         #expect(await model.unlockWithBiometrics())
         #expect(model.state == .unlocked)
-        #expect(!model.privacyShieldVisible)
 
         model.lock()
         biometricStore.shouldFail = true
