@@ -2,11 +2,11 @@ import Foundation
 import Security
 
 struct PasswordGeneratorOptions: Equatable, Sendable {
-    var length = 20
+    var length = 16
     var includesLowercase = true
     var includesUppercase = true
     var includesDigits = true
-    var includesSymbols = true
+    var includesSymbols = false
     var excludesAmbiguous = true
 }
 

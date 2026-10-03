@@ -1,5 +1,6 @@
 import XCTest
 
+@MainActor
 final class LightPasswordUITests: XCTestCase {
     private let masterPassword = "UI-Test-Master-Password-2026"
 

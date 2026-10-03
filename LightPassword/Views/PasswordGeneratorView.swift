@@ -6,6 +6,7 @@ struct PasswordGeneratorView: View {
     let onUse: (String) -> Void
 
     @State private var options = PasswordGeneratorOptions()
+    @State private var hasLoadedPreferences = false
     @State private var generated = ""
     @State private var errorMessage: String?
     private let generator = SecurePasswordGenerator()
@@ -33,7 +34,11 @@ struct PasswordGeneratorView: View {
                     Slider(
                         value: Binding(
                             get: { Double(options.length) },
-                            set: { options.length = Int($0); generate() }
+                            set: {
+                                options.length = Int($0)
+                                savePreferences()
+                                generate()
+                            }
                         ),
                         in: 12...64,
                         step: 1
@@ -66,7 +71,12 @@ struct PasswordGeneratorView: View {
                         .disabled(generated.isEmpty)
                 }
             }
-            .onAppear(perform: generate)
+            .onAppear {
+                guard !hasLoadedPreferences else { return }
+                options = model.preferences.generatorOptions
+                hasLoadedPreferences = true
+                generate()
+            }
         }
     }
 
@@ -75,6 +85,7 @@ struct PasswordGeneratorView: View {
             options[keyPath: keyPath]
         } set: { newValue in
             options[keyPath: keyPath] = newValue
+            savePreferences()
             generate()
         }
     }
@@ -87,5 +98,10 @@ struct PasswordGeneratorView: View {
             generated = ""
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func savePreferences() {
+        guard hasLoadedPreferences else { return }
+        model.preferences.generatorOptions = options
     }
 }

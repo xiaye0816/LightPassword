@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PasswordListView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var router: AppRouter
     @State private var searchText = ""
     @State private var favoritesOnly = false
     @State private var sortOrder: EntrySortOrder = .title
@@ -85,6 +86,12 @@ struct PasswordListView: View {
             .sheet(item: $editingEntry) { entry in
                 EntryEditorView(existingEntry: entry.title.isEmpty && entry.password.isEmpty ? nil : entry)
             }
+            .onChange(of: router.pendingAddPasswordRequest) { _, request in
+                handlePendingAddPasswordRequest(request)
+            }
+            .onAppear {
+                handlePendingAddPasswordRequest(router.pendingAddPasswordRequest)
+            }
         }
     }
 
@@ -102,6 +109,14 @@ struct PasswordListView: View {
 
     private func newEntry() -> PasswordEntry {
         PasswordEntry(title: "", password: "")
+    }
+
+    private func handlePendingAddPasswordRequest(_ request: PendingAddPasswordRequest?) {
+        guard let request else { return }
+        if editingEntry == nil {
+            editingEntry = newEntry()
+        }
+        router.consumeAddPasswordRequest(id: request.id)
     }
 }
 

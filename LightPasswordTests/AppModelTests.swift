@@ -89,6 +89,38 @@ struct AppModelTests {
         model.handleScenePhase(.active)
         #expect(!model.privacyShieldVisible)
     }
+
+    @Test func biometricUnlockClearsShieldImmediatelyAndFailureStaysSilent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suiteName = "LightPasswordTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let biometricStore = TestBiometricStore()
+        let model = AppModel(
+            store: FileVaultStore(baseDirectory: directory),
+            crypto: SodiumVaultCrypto(),
+            biometricStore: biometricStore,
+            clipboard: TestClipboard(),
+            backupService: EncryptedBackupService(),
+            preferences: AppPreferences(defaults: defaults)
+        )
+
+        model.setup(masterPassword: "correct horse battery staple", enableBiometrics: true)
+        model.handleScenePhase(.inactive)
+        model.lock()
+        #expect(model.privacyShieldVisible)
+
+        #expect(await model.unlockWithBiometrics())
+        #expect(model.state == .unlocked)
+        #expect(!model.privacyShieldVisible)
+
+        model.lock()
+        biometricStore.shouldFail = true
+        #expect(!(await model.unlockWithBiometrics()))
+        #expect(model.state == .locked)
+        #expect(model.alertMessage == nil)
+    }
 }
 
 @MainActor
@@ -105,8 +137,10 @@ private final class TestClipboard: ClipboardService {
 @MainActor
 private final class TestBiometricStore: BiometricKeyStore {
     private var key: [UInt8]?
+    var shouldFail = false
     func save(vaultKey: [UInt8]) throws { key = vaultKey }
     func read(reason: String) async throws -> [UInt8] {
+        if shouldFail { throw VaultError.biometricFailed }
         guard let key else { throw VaultError.biometricFailed }
         return key
     }

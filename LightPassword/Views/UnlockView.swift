@@ -1,8 +1,15 @@
 import SwiftUI
 
 struct UnlockView: View {
+    private enum PresentationState: Equatable {
+        case biometricAuthenticating
+        case passwordFallback
+    }
+
     @EnvironmentObject private var model: AppModel
     @State private var password = ""
+    @State private var presentationState: PresentationState = .biometricAuthenticating
+    @State private var hasStartedAutomaticUnlock = false
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -14,41 +21,55 @@ struct UnlockView: View {
                     .foregroundStyle(.tint)
                 Text("轻密码")
                     .font(.largeTitle.bold())
-                Text("解锁本地密码库")
-                    .foregroundStyle(.secondary)
+                if presentationState == .biometricAuthenticating {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("正在验证 Face ID…")
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("unlock.biometricProgress")
+                } else {
+                    Text("解锁本地密码库")
+                        .foregroundStyle(.secondary)
 
-                SecureField("主密码", text: $password)
-                    .textContentType(.password)
-                    .focused($isFocused)
-                    .submitLabel(.go)
-                    .onSubmit(unlock)
-                    .textFieldStyle(.roundedBorder)
+                    SecureField("主密码", text: $password)
+                        .textContentType(.password)
+                        .focused($isFocused)
+                        .submitLabel(.go)
+                        .onSubmit(unlock)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 420)
+                        .accessibilityIdentifier("unlock.masterPassword")
+
+                    Button(action: unlock) {
+                        Text("解锁")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(password.isEmpty)
                     .frame(maxWidth: 420)
 
-                Button(action: unlock) {
-                    Text("解锁")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(password.isEmpty)
-                .frame(maxWidth: 420)
-
-                if model.preferences.biometricEnabled {
-                    Button {
-                        Task { await model.unlockWithBiometrics() }
-                    } label: {
-                        Label("使用 Face ID", systemImage: "faceid")
+                    if model.preferences.biometricEnabled {
+                        Button(action: startBiometricUnlock) {
+                            Label("使用 Face ID", systemImage: "faceid")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.isBiometricUnlockInProgress)
+                        .accessibilityIdentifier("unlock.retryFaceID")
                     }
-                    .buttonStyle(.bordered)
                 }
                 Spacer()
             }
             .padding(24)
             .onAppear {
-                if model.preferences.biometricEnabled {
-                    Task { await model.unlockWithBiometrics() }
+                guard !hasStartedAutomaticUnlock else { return }
+                hasStartedAutomaticUnlock = true
+                if model.preferences.biometricEnabled && model.biometricsAvailable {
+                    startBiometricUnlock()
                 } else {
+                    presentationState = .passwordFallback
                     isFocused = true
                 }
             }
@@ -58,5 +79,17 @@ struct UnlockView: View {
     private func unlock() {
         model.unlock(masterPassword: password)
         password = ""
+    }
+
+    private func startBiometricUnlock() {
+        guard !model.isBiometricUnlockInProgress else { return }
+        isFocused = false
+        presentationState = .biometricAuthenticating
+        Task {
+            let succeeded = await model.unlockWithBiometrics()
+            guard !succeeded, model.state == .locked else { return }
+            presentationState = .passwordFallback
+            isFocused = true
+        }
     }
 }

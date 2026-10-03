@@ -17,6 +17,7 @@ final class AppModel: ObservableObject {
     @Published var alertMessage: String?
     @Published var toastMessage: String?
     @Published private(set) var privacyShieldVisible = false
+    @Published private(set) var isBiometricUnlockInProgress = false
 
     let preferences: AppPreferences
 
@@ -97,14 +98,37 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func unlockWithBiometrics() async {
+    @discardableResult
+    func unlockWithBiometrics() async -> Bool {
+        guard !isBiometricUnlockInProgress else { return false }
+        isBiometricUnlockInProgress = true
+        defer { isBiometricUnlockInProgress = false }
+
+        var key: [UInt8]
         do {
-            var key = try await biometricStore.read(reason: "解锁轻密码")
-            defer { crypto.zero(&key) }
-            let opened = try crypto.openVault(data: store.read(), vaultKey: key)
-            finishUnlock(opened)
+            key = try await biometricStore.read(reason: "解锁轻密码")
+        } catch {
+            return false
+        }
+        defer { crypto.zero(&key) }
+
+        let data: Data
+        do {
+            data = try store.read()
         } catch {
             showError(error)
+            return false
+        }
+
+        do {
+            let opened = try crypto.openVault(data: data, vaultKey: key)
+            finishUnlock(opened)
+            return true
+        } catch VaultError.wrongPasswordOrCorrupted {
+            return false
+        } catch {
+            showError(error)
+            return false
         }
     }
 
@@ -315,6 +339,7 @@ final class AppModel: ObservableObject {
     private func finishUnlock(_ opened: OpenedVault) {
         openedVault = opened
         entries = opened.payload.entries
+        privacyShieldVisible = false
         state = .unlocked
         purgeExpiredTrash()
     }
