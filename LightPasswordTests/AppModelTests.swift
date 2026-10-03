@@ -177,6 +177,64 @@ struct AppModelTests {
         model.handleScenePhase(.background)
         #expect(model.privacyShieldVisible)
     }
+
+    @Test func passwordImportMergesWithoutDeduplicationAndPersistsEncryptedData() throws {
+        let store = InMemoryVaultStore()
+        let suiteName = "LightPasswordTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            store: store,
+            crypto: SodiumVaultCrypto(),
+            biometricStore: TestBiometricStore(),
+            clipboard: TestClipboard(),
+            backupService: EncryptedBackupService(),
+            preferences: AppPreferences(defaults: defaults)
+        )
+        let masterPassword = "correct horse battery staple"
+        model.setup(masterPassword: masterPassword, enableBiometrics: false)
+        #expect(model.upsert(PasswordEntry(title: "已有", password: "existing-secret")))
+
+        let csv = "Title,Url,Username,Password,Extra\n邮箱,mail.example.com,alice,import-secret,备注"
+        let preview = try model.previewPasswordImport(data: Data(csv.utf8), sourceFilename: "1password.csv")
+        #expect(model.importPasswords(preview) == 1)
+        #expect(model.importPasswords(preview) == 1)
+        #expect(model.entries.count == 3)
+        #expect(Set(model.entries.map(\.id)).count == 3)
+        #expect(model.entries.filter { $0.title == "邮箱" }.count == 2)
+
+        let encrypted = try #require(store.data)
+        #expect(!String(decoding: encrypted, as: UTF8.self).contains("import-secret"))
+        let reopened = try SodiumVaultCrypto().openVault(data: encrypted, password: masterPassword)
+        #expect(reopened.payload.entries.count == 3)
+    }
+
+    @Test func failedPasswordImportWriteLeavesCurrentAndStoredVaultUnchanged() throws {
+        let store = InMemoryVaultStore()
+        let suiteName = "LightPasswordTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            store: store,
+            crypto: SodiumVaultCrypto(),
+            biometricStore: TestBiometricStore(),
+            clipboard: TestClipboard(),
+            backupService: EncryptedBackupService(),
+            preferences: AppPreferences(defaults: defaults)
+        )
+        model.setup(masterPassword: "correct horse battery staple", enableBiometrics: false)
+        #expect(model.upsert(PasswordEntry(title: "已有", password: "existing-secret")))
+        let storedBeforeImport = try #require(store.data)
+        let preview = try model.previewPasswordImport(
+            data: Data("Title,Password\n新条目,new-secret".utf8),
+            sourceFilename: "1password.csv"
+        )
+
+        store.shouldFailWrites = true
+        #expect(model.importPasswords(preview) == nil)
+        #expect(model.entries.map(\.title) == ["已有"])
+        #expect(store.data == storedBeforeImport)
+    }
 }
 
 @MainActor
@@ -203,4 +261,24 @@ private final class TestBiometricStore: BiometricKeyStore {
         return key
     }
     func delete() { key = nil }
+}
+
+private final class InMemoryVaultStore: VaultStore {
+    let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("LightPassword-import-test.vault")
+    var data: Data?
+    var shouldFailWrites = false
+
+    var exists: Bool { data != nil }
+
+    func read() throws -> Data {
+        guard let data else { throw VaultError.notConfigured }
+        return data
+    }
+
+    func write(_ data: Data) throws {
+        guard !shouldFailWrites else { throw VaultError.storageFailure("测试写入失败") }
+        self.data = data
+    }
+
+    func delete() throws { data = nil }
 }

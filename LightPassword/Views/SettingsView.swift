@@ -18,6 +18,9 @@ private struct SettingsContent: View {
     @State private var showsImporter = false
     @State private var pendingRestoreData: Data?
     @State private var showsRestoreSheet = false
+    @State private var showsPasswordImporter = false
+    @State private var pendingPasswordImport: PasswordImportPreview?
+    @State private var showsPasswordImportSheet = false
     @State private var showsChangePassword = false
     @State private var showsEraseVault = false
 
@@ -70,6 +73,17 @@ private struct SettingsContent: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section {
+                    Button("从 1Password 7 导入", systemImage: "square.and.arrow.down.on.square") {
+                        showsPasswordImporter = true
+                    }
+                    .accessibilityIdentifier("settings.import1Password")
+                } header: {
+                    Text("数据导入")
+                } footer: {
+                    Text("支持 1Password 7 导出的 CSV 文件。CSV 是未加密明文，导入完成后请从“文件”和废纸篓中彻底删除。")
+                }
+
                 Section("关于") {
                     LabeledContent("名称", value: "轻密码")
                     LabeledContent("版本", value: "1.0")
@@ -96,6 +110,11 @@ private struct SettingsContent: View {
                     RestoreBackupSheet(data: pendingRestoreData)
                 }
             }
+            .sheet(isPresented: $showsPasswordImportSheet, onDismiss: { pendingPasswordImport = nil }) {
+                if let pendingPasswordImport {
+                    PasswordImportSheet(preview: pendingPasswordImport)
+                }
+            }
             .fileExporter(
                 isPresented: $showsExporter,
                 document: backupDocument,
@@ -117,6 +136,17 @@ private struct SettingsContent: View {
             ) { result in
                 importBackup(result)
             }
+            .fileImporter(
+                isPresented: $showsPasswordImporter,
+                allowedContentTypes: [.commaSeparatedText],
+                allowsMultipleSelection: false
+            ) { result in
+                importPasswords(result)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                showsPasswordImportSheet = false
+                pendingPasswordImport = nil
+            }
         }
     }
 
@@ -136,6 +166,82 @@ private struct SettingsContent: View {
         } catch {
             model.alertMessage = error.localizedDescription
         }
+    }
+
+    private func importPasswords(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            let granted = url.startAccessingSecurityScopedResource()
+            defer { if granted { url.stopAccessingSecurityScopedResource() } }
+            let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            if let fileSize, fileSize > CSVPasswordImportService.maximumFileSize {
+                throw PasswordImportError.fileTooLarge
+            }
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            pendingPasswordImport = try model.previewPasswordImport(
+                data: data,
+                sourceFilename: url.lastPathComponent
+            )
+            showsPasswordImportSheet = true
+        } catch {
+            pendingPasswordImport = nil
+            model.alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+}
+
+private struct PasswordImportSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let preview: PasswordImportPreview
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("导入预览") {
+                    LabeledContent("文件", value: preview.sourceFilename)
+                    LabeledContent("可导入", value: "\(preview.importableCount) 条")
+                    LabeledContent("无密码，已跳过", value: "\(preview.skippedCount) 条")
+                    if !preview.skippedEmptyPasswordLines.isEmpty {
+                        LabeledContent("跳过的 CSV 行", value: skippedLineSummary)
+                    }
+                }
+
+                if !preview.unsupportedFields.isEmpty {
+                    Section {
+                        Text(preview.unsupportedFields.joined(separator: "、"))
+                    } header: {
+                        Text("不会导入的字段")
+                    } footer: {
+                        Text("这些字段在有效记录中包含内容，但轻密码当前没有对应的数据类型。")
+                    }
+                }
+
+                Section {
+                    Label("CSV 是未加密明文。轻密码只在本次预览期间读取内容，不会保存原始 CSV；导入后请彻底删除该文件。", systemImage: "exclamationmark.shield")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .navigationTitle("导入 1Password 7")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("导入") {
+                        if model.importPasswords(preview) != nil { dismiss() }
+                    }
+                    .disabled(preview.importableCount == 0)
+                    .accessibilityIdentifier("passwordImport.confirm")
+                }
+            }
+        }
+    }
+
+    private var skippedLineSummary: String {
+        let displayed = preview.skippedEmptyPasswordLines.prefix(20).map(String.init).joined(separator: "、")
+        return preview.skippedEmptyPasswordLines.count > 20 ? "\(displayed) 等" : displayed
     }
 }
 

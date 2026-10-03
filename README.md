@@ -13,6 +13,7 @@
 - 主屏长按 App 图标可选择“快捷录入密码”，解锁后直接打开新增页
 - 删除条目保留在回收站 30 天，可恢复或永久删除
 - `.vaultbackup` 加密备份导出、预览和完整恢复
+- 从 1Password 7 CSV 预览并合并导入；空密码行会跳过，不支持的非空字段会明确提示
 - 修改主密码、自动锁定和本地密码库删除
 
 ## 安全设计
@@ -23,6 +24,7 @@
 - Face ID 密钥使用 `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly + biometryCurrentSet`
 - App 锁定时对内存中的密钥字节执行 best-effort 清零
 - 无分析、广告、远程图标、崩溃上传或敏感日志
+- 导入时不复制或保存原始明文 CSV，确认后一次性加密并原子写入密码库
 
 ## 构建与测试
 
@@ -39,7 +41,7 @@ xcodebuild -project LightPassword.xcodeproj \
   test
 ```
 
-项目包含 Swift Testing 单元测试和 XCUITest UI 测试。测试覆盖加解密、错误主密码、密文篡改、原子写入、搜索、生成规则、备份恢复、后台锁定，以及首次设置、新建、快捷复制、明文显示/隐藏、回收站恢复的完整界面路径。
+项目包含 Swift Testing 单元测试和 XCUITest UI 测试。测试覆盖加解密、错误主密码、密文篡改、原子写入、搜索、生成规则、备份恢复、CSV 解析和导入失败回滚、后台锁定，以及首次设置、新建、快捷复制、明文显示/隐藏、回收站恢复的完整界面路径。
 
 ## 真机发布前
 

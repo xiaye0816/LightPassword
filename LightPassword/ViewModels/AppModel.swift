@@ -26,6 +26,7 @@ final class AppModel: ObservableObject {
     private let biometricStore: BiometricKeyStore
     private let clipboard: ClipboardService
     private let backupService: BackupService
+    private let passwordImportService: PasswordImporting
     private var openedVault: OpenedVault?
     private var backgroundedAt: Date?
     private var autoLockTask: Task<Void, Never>?
@@ -40,6 +41,7 @@ final class AppModel: ObservableObject {
         biometricStore: BiometricKeyStore = KeychainBiometricKeyStore(),
         clipboard: ClipboardService = SystemClipboardService(),
         backupService: BackupService = EncryptedBackupService(),
+        passwordImportService: PasswordImporting = CSVPasswordImportService(),
         preferences: AppPreferences = AppPreferences()
     ) {
         self.store = store
@@ -47,6 +49,7 @@ final class AppModel: ObservableObject {
         self.biometricStore = biometricStore
         self.clipboard = clipboard
         self.backupService = backupService
+        self.passwordImportService = passwordImportService
         self.preferences = preferences
     }
 
@@ -228,6 +231,45 @@ final class AppModel: ObservableObject {
             showError(error)
             return nil
         }
+    }
+
+    func previewPasswordImport(data: Data, sourceFilename: String) throws -> PasswordImportPreview {
+        try passwordImportService.preview(data: data, sourceFilename: sourceFilename)
+    }
+
+    @discardableResult
+    func importPasswords(_ preview: PasswordImportPreview) -> Int? {
+        guard var opened = openedVault else {
+            showError(VaultError.notConfigured)
+            return nil
+        }
+        guard !preview.candidates.isEmpty else {
+            showError(ValidationError("没有可导入的密码。"))
+            return nil
+        }
+
+        let now = Date.now
+        opened.payload.entries.append(contentsOf: preview.candidates.map { candidate in
+            PasswordEntry(
+                title: candidate.title,
+                username: candidate.username,
+                password: candidate.password,
+                website: candidate.website,
+                notes: candidate.notes,
+                isFavorite: candidate.isFavorite,
+                createdAt: now,
+                updatedAt: now
+            )
+        })
+        opened.payload.savedAt = now
+
+        guard persist(opened) else { return nil }
+        if preview.skippedCount > 0 {
+            showToast("已导入 \(preview.importableCount) 条，跳过 \(preview.skippedCount) 条")
+        } else {
+            showToast("已导入 \(preview.importableCount) 条密码")
+        }
+        return preview.importableCount
     }
 
     func inspectBackup(data: Data, password: String) throws -> BackupPreview {

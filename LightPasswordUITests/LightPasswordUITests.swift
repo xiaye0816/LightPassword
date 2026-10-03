@@ -58,5 +58,9 @@ final class LightPasswordUITests: XCTestCase {
 
         app.tabBars.buttons["密码"].tap()
         XCTAssertTrue(app.staticTexts["测试邮箱"].waitForExistence(timeout: 5))
+
+        app.tabBars.buttons["设置"].tap()
+        let importButton = app.buttons["settings.import1Password"]
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
     }
 }
